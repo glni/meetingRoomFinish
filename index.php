@@ -1,22 +1,55 @@
 <?php
 require "settings/init.php";
 
+date_default_timezone_set("Europe/Copenhagen");
+
+if(empty($_GET["meroId"])){
+    exit("URL'en mangler et meroId: <a href='index.php?meroId=1'>index.php?meroId=1</a>");
+}
+
+$now = date("Y-m-d H:i:s");
+
+
+/*
+ * Møderum info
+ * */
 $sql = "SELECT * FROM meetingrooms WHERE meroId = :meroId";
 $bind = [":meroId" => $_GET["meroId"]];
 $meetingRoom = $db->sql($sql, $bind);
 
-$todayFrom = date("Y-m-d") . " 00:00:00";
-$todayTo = date("Y-m-d") . " 23:59:59";
+if(empty($meetingRoom)){
+    exit("Møderummet findes ikke");
+}
+
+$meetingRoom = $meetingRoom[0] ?? NULL;
+
+
+/*
+ * Aktuelt møde
+ * */
 $sql = "SELECT * FROM meetingrooms INNER JOIN meetings ON meroId = meetMeetingRoomsId
         WHERE meroId = :meroId
-        AND meetDateFrom > :todayFrom
-        AND meetDateTo < :todayTo";
+        AND meetDateFrom < :now
+        AND meetDateTo > :now";
 $bind = [
     ":meroId" => $_GET["meroId"],
-    ":todayFrom" => $todayFrom,
-    ":todayTo" => $todayTo
+    ":now" => $now,
 ];
-$meetings = $db->sql($sql, $bind);
+$currentMeeting = $db->sql($sql, $bind);
+$currentMeeting = $currentMeeting[0] ?? NULL;
+
+
+/*
+ * Fremtidige møder
+ * */
+$sql = "SELECT * FROM meetingrooms INNER JOIN meetings ON meroId = meetMeetingRoomsId
+        WHERE meroId = :meroId
+        AND meetDateFrom > :now";
+$bind = [
+    ":meroId" => $_GET["meroId"],
+    ":now" => $now,
+];
+$futureMeetings = $db->sql($sql, $bind);
 ?>
 
 <!DOCTYPE html>
@@ -49,13 +82,13 @@ $meetings = $db->sql($sql, $bind);
             </div>
             
             <div class="text-light text-center py-3">
-                <div class="fs-5">#123</div>
-                <div class="fs-1 fw-bold">Lokalenavn</div>
+                <div class="fs-5">#<?php echo $meetingRoom->meroNumber; ?></div>
+                <div class="fs-1 fw-bold"><?php echo $meetingRoom->meroName; ?></div>
             </div>
             
             <div class="text-light text-center py-3">
-                <div>Skærm: Ja</div>
-                <div>Maks. pers: 20</div>
+                <div>Skærm: <?php echo ($meetingRoom->meroScreen == 0) ? "Nej" : "Ja"; ?></div>
+                <div>Maks. pers: <?php echo $meetingRoom->meroPersons; ?></div>
             </div>
             
             <div class="w-50 mx-auto text-light py-3" id="occupied">
@@ -67,9 +100,11 @@ $meetings = $db->sql($sql, $bind);
                         </div>
                         <div class="col-auto">
                             <div class="card-body">
-                                <div class="card-text fw-bold">07:15 - 08:00</div>
-                                <div class="card-text">Afd: Marketingafdeling</div>
-                                <div class="card-text"><small>Adam, Bent, Carl</small></div>
+                                <div class="card-text fw-bold">
+                                    <?php echo date("H:i", strtotime($currentMeeting->meetDateFrom)) . " - " . date("H:i", strtotime($currentMeeting->meetDateTo)); ?>
+                                </div>
+                                <div class="card-text">Afd: <?php echo $currentMeeting->meetDepartment; ?></div>
+                                <div class="card-text"><small><?php echo $currentMeeting->meetNames; ?></small></div>
                             </div>
                         </div>
                     </div>
@@ -91,20 +126,29 @@ $meetings = $db->sql($sql, $bind);
             <div class="row">
                 <div id="nextUp">
                     <?php
-                    foreach($meetings as $meeting){
+                    foreach($futureMeetings as $futureMeeting){
                         ?>
                         <div class="card my-3">
                             <div class="row g-0">
                                 <div class="col-auto d-flex align-items-center ps-1">
-                                    <img src="images/uifaces1.jpg" class="profile-img rounded-circle border border-2 border-danger" alt="profilbillede">
+                                    <?php
+                                    if(!empty($futureMeeting->meetImage)){
+                                        ?>
+                                        <img src="images/<?php echo  $futureMeeting->meetImage; ?>" class="profile-img rounded-circle border border-2 border-danger" alt="profilbillede">
+                                        <?php
+                                    }
+                                    ?>
                                 </div>
                                 <div class="col">
                                     <div class="card-body">
                                         <div class="card-text fw-bold">
-                                            <?php echo date("H:i", strtotime($meeting->meetDateFrom)) . " - " . date("H:i", strtotime($meeting->meetDateTo)); ?>
+                                            <?php
+                                            echo "d. " . date("d/m", strtotime($futureMeeting->meetDateFrom)) . "<br>";
+                                            echo date("H:i", strtotime($futureMeeting->meetDateFrom)) . " - " . date("H:i", strtotime($futureMeeting->meetDateTo));
+                                            ?>
                                         </div>
-                                        <div class="card-text">Afd: <?php echo $meeting->meetDepartment; ?></div>
-                                        <div class="card-text"><small class="text-body-secondary"><?php echo $meeting->meetNames; ?></small>
+                                        <div class="card-text">Afd: <?php echo $futureMeeting->meetDepartment; ?></div>
+                                        <div class="card-text"><small class="text-body-secondary"><?php echo $futureMeeting->meetNames; ?></small>
                                         </div>
                                     </div>
                                 </div>
@@ -203,7 +247,7 @@ $meetings = $db->sql($sql, $bind);
         const hours = date.getHours().toString().padStart(2, 0);
         const minutes = date.getMinutes().toString().padStart(2, 0);
         const seconds = date.getSeconds().toString().padStart(2, 0);
-        const clock = hours + ':' + minutes;
+        const clock = hours + ':' + minutes + ':' + seconds;
         time.innerHTML = clock;
         
         setTimeout(showTime, 1000);
@@ -242,7 +286,7 @@ $meetings = $db->sql($sql, $bind);
         
     }
     
-    toggleStatus(false);
+    toggleStatus(<?php echo (!empty($currentMeeting)) ? "true" : "false"; ?>);
 
 </script>
 </body>
